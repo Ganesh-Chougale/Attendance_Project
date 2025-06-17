@@ -14,6 +14,8 @@ const supportedExtensions = {
     '.c': 'c',
     '.php': 'php',
     '.sh': 'bash',
+    '.xml': 'xml',
+    '.properties': 'properties',
     '.cs': 'csharp'
 };
 
@@ -21,7 +23,7 @@ const supportedExtensions = {
 const ignoredFiles = [
     '.angular', '.vscode', 'node_modules', '.editorconfig', '.gitignore', 'Migrations', 'Debug', 'test',
     'angular.json', 'package-lock.json', 'package.json', 'README.md', 'Dependencies', 'Connected Services',
-    'tsconfig.app.json', 'tsconfig.json', 'tsconfig.spec.json', 'cS.js', 'zzz.md', '.mvn', '.settings'
+    'tsconfig.app.json', 'target','tsconfig.json', 'tsconfig.spec.json', 'cS.js', 'zzz.md', '.mvn', '.settings'
 ];
 
 let processedFiles = 0;
