@@ -1,0 +1,30 @@
+Admin: 
+A) User Management
+- A1. create teacher account
+- A2. manage current users
+B) Class Management
+- B1. Create a class (example. MCA-I semester-II)
+C) Subject Management
+- C1. create new subjects
+- C2. manage existing subjects
+D) Admin Dashboard
+- D1. See/Monitor over all records
+- D2. Generate reports
+
+
+Teacher:
+A) Lecture management
+- A1. create lecture with date & choosing subject
+- A2. assign self to semesters & subjects
+- A3. Initiate Live Lecture & Generate QR Code
+B) Teacher Dashboard
+- B1. monitor real-time attendance
+- B2. view lecture attendance history
+- B3. view student attendance history
+C) Manage own profile
+
+Student:
+1. self registration
+2. mark attendance
+3. view personal attendance
+4. manage own profile
