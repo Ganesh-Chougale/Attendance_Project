@@ -32,7 +32,7 @@ public class User extends BaseEntity {
 	private String firstName;
 	
 	@Column(name = "last_name")
-	private String lasName;
+	private String lastName;
 
 	@Column(nullable = false, unique = true)
 	private String email;
