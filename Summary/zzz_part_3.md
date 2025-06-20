@@ -1,4 +1,128 @@
 
+PS\Backend\src\main\java\com\AttendaceBE\Services\AuthService.java:
+```java
+package com.AttendaceBE.Services;
+
+import com.AttendaceBE.DTOs.AuthenticationRequest;
+import com.AttendaceBE.DTOs.AuthenticationResponse;
+import com.AttendaceBE.DTOs.RegisterRequest;
+import com.AttendaceBE.DTOs.UserProfileDto; 
+import com.AttendaceBE.Entities.User;
+import com.AttendaceBE.Enums.Role;
+import com.AttendaceBE.Repositories.UserRepository;
+import com.AttendaceBE.Security.JwtService;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import java.util.Collections;
+
+
+@Service
+public class AuthService {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+    private final AuthenticationManager authenticationManager;
+    private final UserDetailsServiceImpl userDetailsService;
+
+    public AuthService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       JwtService jwtService,
+                       AuthenticationManager authenticationManager,
+                       UserDetailsServiceImpl userDetailsService) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+        this.authenticationManager = authenticationManager;
+        this.userDetailsService = userDetailsService;
+    }
+
+    public AuthenticationResponse register(RegisterRequest request) {
+        if (userRepository.findByUsername(request.getUsername()).isPresent()) {
+            throw new IllegalArgumentException("Username already taken.");
+        }
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new IllegalArgumentException("Email already registered.");
+        }
+
+        Role assignedRole = request.getRole() != null ? request.getRole() : Role.STUDENT;
+
+        User user = User.builder()
+                .username(request.getUsername())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName()) 
+                .email(request.getEmail())
+                .role(assignedRole)
+                .enabled(true)
+                .build();
+
+        userRepository.save(user);
+
+        UserDetails userDetails = new org.springframework.security.core.userdetails.User(
+                user.getUsername(),
+                user.getPassword(),
+                user.isEnabled(),
+                true,
+                true,
+                true,
+                Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
+        );
+        var jwtToken = jwtService.generateToken(userDetails);
+
+        return AuthenticationResponse.builder().token(jwtToken).build();
+    }
+
+    public AuthenticationResponse login(AuthenticationRequest request) {
+        authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        request.getUsername(),
+                        request.getPassword()
+                )
+        );
+
+        final UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
+        var jwtToken = jwtService.generateToken(userDetails);
+        return AuthenticationResponse.builder().token(jwtToken).build();
+    }
+
+
+    public User findUserByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
+    }
+
+
+    public User updateUserProfile(String username, UserProfileDto profileDto) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
+
+
+        if (profileDto.getFirstName() != null) {
+            user.setFirstName(profileDto.getFirstName());
+        }
+        if (profileDto.getLastName() != null) {
+            user.setLastName(profileDto.getLastName()); 
+        }
+
+        if (profileDto.getEmail() != null && !profileDto.getEmail().equals(user.getEmail())) {
+            if (userRepository.findByEmail(profileDto.getEmail()).isPresent()) {
+                throw new IllegalArgumentException("Email " + profileDto.getEmail() + " is already taken by another user.");
+            }
+            user.setEmail(profileDto.getEmail());
+        }
+
+
+        return userRepository.save(user);
+    }
+}
+```
+
 PS\Backend\src\main\java\com\AttendaceBE\Services\UserDetailsServiceImpl.java:
 ```java
 package com.AttendaceBE.Services;
@@ -192,7 +316,7 @@ logging.level.org.springframework.security=DEBUG
 logging.level.io.jsonwebtoken=DEBUG
 
 # JWT Configuration
-application.security.jwt.secret-key=QwO4s+JjW72Y9Vmkm1o6OQkkhEtZ9uXL7HidKz0xf2w=
+application.security.jwt.secret-key=Rm9vYmFyMTIzQCRUcmFuc3BhcmVudExvbmdLZXlGb3JKV1RzZXJ2aWNlS2V5MTIzNDU2Nzg5MA==
 application.security.jwt.expiration=604800000
 # 7 days in milliseconds (7 * 24 * 60 * 60 * 1000) - Set this to match refresh token for simplicity, or longer if needed
 application.security.jwt.refresh-token.expiration=604800000

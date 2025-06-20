@@ -1,4 +1,39 @@
 
+PS\Backend\src\main\java\com\AttendaceBE\Entities\AcademicClass.java:
+```java
+package com.AttendaceBE.Entities;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Entity
+@Table(name = "classes")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class AcademicClass extends BaseEntity {
+
+	@Column(nullable = false, unique = true)
+	private String name;
+
+	 @Column(nullable = false)
+	 private String semester;
+
+	 @Column(name = "academic_year", nullable = false)
+	 private String academicYear;
+
+}
+```
+
 PS\Backend\src\main\java\com\AttendaceBE\Entities\Attendance.java:
 ```java
 package com.AttendaceBE.Entities;
@@ -438,8 +473,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+import io.jsonwebtoken.security.SignatureException;
+import io.jsonwebtoken.ExpiredJwtException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
@@ -455,42 +497,92 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
-        try {
-            final String authHeader = request.getHeader("Authorization");
-            final String jwt;
-            final String username;
 
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                filterChain.doFilter(request, response);
+
+        logger.debug("Filter Chain Start: Request URI = {}", request.getRequestURI());
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            logger.debug("Filter Chain Start: Authentication already present: {}", SecurityContextHolder.getContext().getAuthentication().getName());
+        } else {
+            logger.debug("Filter Chain Start: No authentication present.");
+        }
+
+
+        final String authHeader = request.getHeader("Authorization");
+        final String jwt;
+        String username = null;
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            logger.debug("No JWT token found in request or not a Bearer token. Continuing filter chain.");
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        jwt = authHeader.substring(7);
+
+        try {
+            username = jwtService.extractUsername(jwt);
+            logger.debug("Successfully extracted username '{}' from JWT.", username);
+        } catch (SignatureException ex) {
+            logger.error("JWT validation failed: Invalid JWT signature for token: {}", jwt, ex);
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().write("Unauthorized: Invalid JWT Signature.");
+            return;
+        } catch (ExpiredJwtException ex) {
+            logger.error("JWT validation failed: Token has expired for token: {}", jwt, ex);
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().write("Unauthorized: Token has expired.");
+            return;
+        } catch (Exception ex) {
+            logger.error("JWT validation failed: General JWT parsing error for token: {}", jwt, ex);
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().write("Unauthorized: Invalid Token Format or Content.");
+            return;
+        }
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails;
+            try {
+                userDetails = this.userDetailsService.loadUserByUsername(username);
+                logger.debug("User details loaded from database for username: {}", username);
+            } catch (Exception e) {
+                logger.error("Error loading user details for username: {}. User might not exist or be disabled.", username, e);
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.getWriter().write("Unauthorized: User not found or invalid credentials.");
                 return;
             }
 
-            jwt = authHeader.substring(7);
-            username = jwtService.extractUsername(jwt);
+            if (jwtService.isTokenValid(jwt, userDetails)) {
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                        userDetails,
+                        null,
+                        userDetails.getAuthorities()
+                );
 
-            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+                authToken.setDetails(
+                        new WebAuthenticationDetailsSource().buildDetails(request)
+                );
 
-                if (jwtService.isTokenValid(jwt, userDetails)) {
-                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                            userDetails,
-                            null,
-                            userDetails.getAuthorities()
-                    );
-
-                    authToken.setDetails(
-                            new WebAuthenticationDetailsSource().buildDetails(request)
-                    );
-
-                    SecurityContextHolder.getContext().setAuthentication(authToken);
-                }
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+                logger.debug("Authentication successful for user: {}. SecurityContextHolder updated.", username);
+                System.out.println("--- JwtAuthenticationFilter: SecurityContextHolder set! --- Current Auth: " + SecurityContextHolder.getContext().getAuthentication()); 
+            } else {
+                logger.warn("JWT token is not valid for user '{}' according to JwtService.isTokenValid().", username);
             }
-            filterChain.doFilter(request, response);
-        } catch (Exception e) {
-            logger.error(e.getMessage());
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("Unauthorized: " + e.getMessage());
+        } else if (username == null) {
+            logger.debug("Username extracted from token was null after parsing. This should be caught by earlier blocks.");
+        } else {
+            logger.debug("SecurityContextHolder already contains authentication for user. Skipping authentication filter for this request.");
         }
+
+        filterChain.doFilter(request, response);
+
+
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            logger.debug("Filter Chain End: Authentication present for: {}", SecurityContextHolder.getContext().getAuthentication().getName());
+        } else {
+            logger.debug("Filter Chain End: No authentication present.");
+        }
+
     }
 }
 ```
@@ -504,6 +596,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.SignatureException;
+import io.jsonwebtoken.ExpiredJwtException; 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -531,7 +624,7 @@ public class JwtService {
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
+        final Claims claims = extractAllClaims(token); 
         return claimsResolver.apply(claims);
     }
 
@@ -569,17 +662,38 @@ public class JwtService {
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
         try {
-            final String username = extractUsername(token);
+
+
+            final String username = extractUsername(token); 
+
+            final Date expiration = extractExpiration(token);
+            final Date now = new Date();
+
+            System.out.println("DEBUG (JwtService.isTokenValid): Token Extracted Username: " + username);
+            System.out.println("DEBUG (JwtService.isTokenValid): UserDetails Username: " + userDetails.getUsername());
+            System.out.println("DEBUG (JwtService.isTokenValid): Token Expiration: " + expiration);
+            System.out.println("DEBUG (JwtService.isTokenValid): Current Time: " + now);
+            System.out.println("DEBUG (JwtService.isTokenValid): Is token expired? " + expiration.before(now));
+            System.out.println("DEBUG (JwtService.isTokenValid): Is username match? " + (username.equals(userDetails.getUsername())));
+
             return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
         } catch (SignatureException e) {
-            System.err.println("Invalid JWT signature: " + e.getMessage());
+
+            System.err.println("ERROR (JwtService.isTokenValid): Invalid JWT signature! (This should be caught earlier if filter is working)");
+            System.err.println("Exception details: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        } catch (ExpiredJwtException e) { 
+            System.err.println("ERROR (JwtService.isTokenValid): JWT has expired! (This should be caught earlier if filter is working)");
+            System.err.println("Exception details: " + e.getMessage());
+            e.printStackTrace();
             return false;
         } catch (Exception e) {
-            System.err.println("Error validating token: " + e.getMessage());
+            System.err.println("ERROR (JwtService.isTokenValid): Generic error validating token: " + e.getMessage());
+            e.printStackTrace();
             return false;
         }
     }
-
 
     private boolean isTokenExpired(String token) {
         return extractExpiration(token).before(new Date());
@@ -590,6 +704,8 @@ public class JwtService {
     }
 
     private Claims extractAllClaims(String token) {
+
+
         return Jwts
                 .parser()
                 .verifyWith(getSignInKey())
@@ -601,130 +717,6 @@ public class JwtService {
     private SecretKey getSignInKey() {
         byte[] keyBytes = Decoders.BASE64.decode(secretKey);
         return Keys.hmacShaKeyFor(keyBytes);
-    }
-}
-```
-
-PS\Backend\src\main\java\com\AttendaceBE\Services\AuthService.java:
-```java
-package com.AttendaceBE.Services;
-
-import com.AttendaceBE.DTOs.AuthenticationRequest;
-import com.AttendaceBE.DTOs.AuthenticationResponse;
-import com.AttendaceBE.DTOs.RegisterRequest;
-import com.AttendaceBE.DTOs.UserProfileDto; 
-import com.AttendaceBE.Entities.User;
-import com.AttendaceBE.Enums.Role;
-import com.AttendaceBE.Repositories.UserRepository;
-import com.AttendaceBE.Security.JwtService;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import java.util.Collections;
-
-
-@Service
-public class AuthService {
-
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
-    private final AuthenticationManager authenticationManager;
-    private final UserDetailsServiceImpl userDetailsService;
-
-    public AuthService(UserRepository userRepository,
-                       PasswordEncoder passwordEncoder,
-                       JwtService jwtService,
-                       AuthenticationManager authenticationManager,
-                       UserDetailsServiceImpl userDetailsService) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
-        this.authenticationManager = authenticationManager;
-        this.userDetailsService = userDetailsService;
-    }
-
-    public AuthenticationResponse register(RegisterRequest request) {
-        if (userRepository.findByUsername(request.getUsername()).isPresent()) {
-            throw new IllegalArgumentException("Username already taken.");
-        }
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            throw new IllegalArgumentException("Email already registered.");
-        }
-
-        Role assignedRole = request.getRole() != null ? request.getRole() : Role.STUDENT;
-
-        User user = User.builder()
-                .username(request.getUsername())
-                .password(passwordEncoder.encode(request.getPassword()))
-                .firstName(request.getFirstName())
-                .lastName(request.getLastName()) 
-                .email(request.getEmail())
-                .role(assignedRole)
-                .enabled(true)
-                .build();
-
-        userRepository.save(user);
-
-        UserDetails userDetails = new org.springframework.security.core.userdetails.User(
-                user.getUsername(),
-                user.getPassword(),
-                user.isEnabled(),
-                true,
-                true,
-                true,
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
-        );
-        var jwtToken = jwtService.generateToken(userDetails);
-
-        return AuthenticationResponse.builder().token(jwtToken).build();
-    }
-
-    public AuthenticationResponse login(AuthenticationRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getUsername(),
-                        request.getPassword()
-                )
-        );
-
-        final UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
-        var jwtToken = jwtService.generateToken(userDetails);
-        return AuthenticationResponse.builder().token(jwtToken).build();
-    }
-
-
-    public User findUserByUsername(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
-    }
-
-
-    public User updateUserProfile(String username, UserProfileDto profileDto) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + username));
-
-
-        if (profileDto.getFirstName() != null) {
-            user.setFirstName(profileDto.getFirstName());
-        }
-        if (profileDto.getLastName() != null) {
-            user.setLastName(profileDto.getLastName()); 
-        }
-
-        if (profileDto.getEmail() != null && !profileDto.getEmail().equals(user.getEmail())) {
-            if (userRepository.findByEmail(profileDto.getEmail()).isPresent()) {
-                throw new IllegalArgumentException("Email " + profileDto.getEmail() + " is already taken by another user.");
-            }
-            user.setEmail(profileDto.getEmail());
-        }
-
-
-        return userRepository.save(user);
     }
 }
 ```

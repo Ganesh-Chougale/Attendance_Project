@@ -1,4 +1,4 @@
-### **I. Authentication Endpoints (`AuthController`)**
+### **Authentication Endpoints (`AuthController`)**
 
 **1. Register User (POST)**
 
@@ -39,7 +39,7 @@
 * **Body (raw JSON):**
     ```json
     {
-        "username": "testuser",
+        "username": "ganesh",
         "password": "password123"
     }
     ```
