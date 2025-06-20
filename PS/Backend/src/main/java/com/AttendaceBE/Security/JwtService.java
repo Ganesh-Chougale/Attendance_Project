@@ -4,7 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.SignatureException;
+import io.jsonwebtoken.security.SignatureException; // Ensure this import is present
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -32,7 +32,7 @@ public class JwtService {
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
+        final Claims claims = extractAllClaims(token); // This is where the SignatureException likely happens
         return claimsResolver.apply(claims);
     }
 
@@ -70,17 +70,33 @@ public class JwtService {
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
         try {
-            final String username = extractUsername(token);
+            // These lines were executed before because extractUsername calls extractAllClaims internally
+            // The issue is likely within extractAllClaims
+            final String username = extractUsername(token); // This calls extractAllClaims
+            
+            // Now, explicitly check other conditions *after* successful claim extraction
+            final Date expiration = extractExpiration(token); // This also calls extractAllClaims
+            final Date now = new Date();
+
+            System.out.println("DEBUG: Token Extracted Username: " + username);
+            System.out.println("DEBUG: UserDetails Username: " + userDetails.getUsername());
+            System.out.println("DEBUG: Token Expiration: " + expiration);
+            System.out.println("DEBUG: Current Time: " + now);
+            System.out.println("DEBUG: Is token expired? " + expiration.before(now));
+            System.out.println("DEBUG: Is username match? " + (username.equals(userDetails.getUsername())));
+
             return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
         } catch (SignatureException e) {
-            System.err.println("Invalid JWT signature: " + e.getMessage());
+            System.err.println("ERROR: Invalid JWT signature! This token was signed with a different key or is corrupted.");
+            System.err.println("Exception details: " + e.getMessage());
+            e.printStackTrace(); // Print full stack trace for more details
             return false;
         } catch (Exception e) {
-            System.err.println("Error validating token: " + e.getMessage());
+            System.err.println("ERROR: Generic error validating token: " + e.getMessage());
+            e.printStackTrace(); // Print full stack trace for other exceptions
             return false;
         }
     }
-
 
     private boolean isTokenExpired(String token) {
         return extractExpiration(token).before(new Date());
@@ -93,7 +109,7 @@ public class JwtService {
     private Claims extractAllClaims(String token) {
         return Jwts
                 .parser()
-                .verifyWith(getSignInKey())
+                .verifyWith(getSignInKey()) // This is the crucial line for signature verification
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
